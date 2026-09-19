@@ -66,8 +66,12 @@ def cmd_chat(pipe: RAGPipeline, top_k: int | None) -> int:
 
 
 def cmd_info(pipe: RAGPipeline) -> int:
-    print(f"向量库路径 : {settings.persist_dir}")
-    print(f"集合名称   : {settings.collection_name}")
+    # 向量库信息由 store 自行描述，保证 Chroma / Milvus 切换后展示不误导
+    try:
+        for key, value in pipe.store.describe().items():
+            print(f"{key:<10} : {value}")
+    except Exception as e:  # noqa: BLE001
+        print(f"[警告] 无法获取向量库信息：{e}")
     print(f"已入库块数 : {pipe.store.count()}")
     print(f"Embedding  : {settings.embed_model}")
     print(f"生成模型   : {settings.chat_model}")

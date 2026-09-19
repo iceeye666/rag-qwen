@@ -6,7 +6,7 @@ from .embeddings import QwenEmbeddings
 from .loaders import Document, load_document
 from .llm import QwenChat
 from .pipeline import Answer, RAGPipeline, Source
-from .vectorstore import ChromaStore, Hit
+from .vectorstore import ChromaStore, Hit, MilvusStore, create_store
 
 __all__ = [
     "Answer",
@@ -14,11 +14,13 @@ __all__ = [
     "ChromaStore",
     "Document",
     "Hit",
+    "MilvusStore",
     "QwenChat",
     "QwenEmbeddings",
     "RAGPipeline",
     "Settings",
     "clean_text",
+    "create_store",
     "load_document",
     "settings",
     "sliding_window_chunks",

@@ -1,4 +1,6 @@
 pdfminer.six>=20240706
 chromadb>=1.0.0
+# Milvus 后端；本地 Milvus Lite 模式另需：pip install "pymilvus[milvus_lite]"
+pymilvus>=2.4.2
 openai>=1.40.0
 python-dotenv>=1.0.0

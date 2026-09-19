@@ -46,10 +46,11 @@ class RAGPipeline:
         if embedder is None or store is None or chat is None:
             from .embeddings import QwenEmbeddings
             from .llm import QwenChat
-            from .vectorstore import ChromaStore
+            from .vectorstore import create_store
 
             self.embedder = embedder or QwenEmbeddings(self.settings)
-            self.store = store or ChromaStore(self.settings)
+            # 按 VECTOR_BACKEND 配置装配 Chroma 或 Milvus 后端
+            self.store = store or create_store(self.settings)
             self.chat = chat or QwenChat(self.settings)
 
     # ---------- 写入 ----------

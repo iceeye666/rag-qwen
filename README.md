@@ -1,7 +1,7 @@
 # RAG 文档智能问答系统（基于通义千问）
 
 面向私有文档（财务制度、内部手册、知识库等）的轻量级检索增强生成问答系统。
-支持 PDF 上传入库，用**通义千问 text-embedding-v2** 做向量化、**Chroma** 做本地持久化检索、
+支持 PDF 上传入库，用**通义千问 text-embedding-v2** 做向量化、**Chroma / Milvus** 做向量持久化检索、
 **qwen-plus** 做 grounded 生成，答案严格限定在文档事实内，命中不足时明确拒答。
 
 ## 架构
@@ -22,8 +22,8 @@
    │    向量化       │
    └────────┬───────┘
             ▼
-   ┌────────────────┐   Chroma 持久化，cosine 空间
-   │   向量库入库    │
+   ┌────────────────┐   Chroma / Milvus 持久化，cosine 空间
+   │   向量库入库    │   VECTOR_BACKEND 切换后端
    └────────┬───────┘
             │
    问题 ────┴───► 向量化 ──► 相似度检索 top_k ──► 相似度 < 0.30 ?
@@ -44,6 +44,8 @@
 ```bash
 # 1) 安装依赖
 pip install -r requirements.txt
+#    如需 Milvus Lite 本地模式，再补装可选依赖：
+#    pip install "pymilvus[milvus_lite]"
 
 # 2) 配置 API Key（阿里云百炼控制台获取）
 cp .env.example .env
@@ -64,6 +66,78 @@ python main.py chat
 # 查看配置与库状态
 python main.py info
 ```
+
+## 向量后端切换（Chroma / Milvus）
+
+默认使用 Chroma，无需任何额外部署。若要改用 Milvus，只需在 `.env` 中把
+`VECTOR_BACKEND` 设为 `milvus` 即可，其余命令（`ingest` / `ask` / `chat` / `info`）完全不变。
+
+```bash
+# .env
+VECTOR_BACKEND=milvus
+```
+
+### 方式一：Milvus Lite（本地文件，零部署，推荐先跑通）
+
+无需启动任何服务，`pymilvus` 会直接以本地文件形式运行。先补装 Lite 可选依赖：
+
+```bash
+pip install -r requirements.txt
+pip install "pymilvus[milvus_lite]"
+```
+
+不配置连接信息时，默认落盘到 `./storage/milvus.db`（Lite 会在该路径生成数据库目录）：
+
+```bash
+# .env 中不必写 MILVUS_URI，留空即用本地 Lite 文件
+VECTOR_BACKEND=milvus
+# MILVUS_URI=./storage/milvus.db   # 也可显式指定路径，相对路径按项目根目录解析
+```
+
+```bash
+python main.py ingest docs/财务管理制度样例.pdf --reset
+python main.py ask "一线城市差旅住宿报销标准是多少？"
+python main.py info   # 应显示「向量后端: milvus / 部署形态: 本地 Milvus Lite」
+```
+
+> 说明：Milvus Lite 支持 macOS 与 Linux，暂不支持 Windows（Windows 下请使用方式二）。
+
+### 方式二：远程 Milvus 服务
+
+用 Docker 快速起一个 standalone 实例：
+
+```bash
+docker run -d --name milvus-standalone \
+  -p 19530:19530 -p 9091:9091 \
+  milvusdb/milvus:latest milvus run standalone
+```
+
+然后在 `.env` 中配置连接信息（两种写法二选一，`MILVUS_URI` 优先级更高）：
+
+```bash
+VECTOR_BACKEND=milvus
+MILVUS_HOST=127.0.0.1
+MILVUS_PORT=19530
+# 或直接：
+# MILVUS_URI=http://127.0.0.1:19530
+```
+
+连接 Zilliz Cloud 等需要鉴权的托管服务时，额外填 `MILVUS_TOKEN`：
+`MILVUS_URI=https://in01-xxxx.aws-us-west-2.vectordb.zillizcloud.com:19530` + `MILVUS_TOKEN=<api-key>`。
+
+### 连接目标解析顺序
+
+`MILVUS_URI` → `MILVUS_HOST:MILVUS_PORT` → 本地 Lite 文件 `./storage/milvus.db`。
+
+### 注意事项
+
+- **相似度口径一致**：Milvus 集合以 `COSINE` 度量创建，检索返回的分数即余弦相似度，
+  与 Chroma 的 `1 - 距离` 口径一致，因此 `SCORE_THRESHOLD`（默认 0.30）在两个后端下含义相同，无需调整。
+- **维度必须匹配**：`MILVUS_DIM` 需与 embedding 模型输出维度一致（`text-embedding-v2` → 1536，
+  `text-embedding-v3` → 1024）。维度不符时入库会直接报错并提示正确取值。
+- **切换后端后需重新入库**：两种后端的存储互不通用，切换 `VECTOR_BACKEND` 后请重新执行
+  `python main.py ingest <文档> --reset`。
+- **回退**：把 `VECTOR_BACKEND` 改回 `chroma` 即可回到原 Chroma 库，历史数据与集合名不受影响。
 
 ## 离线自检（无需 API Key）
 
@@ -88,7 +162,7 @@ rag-qwen/
 │   ├── loaders.py       # PDF(pdfminer) / TXT / MD 加载
 │   ├── chunker.py       # 清洗 + 断句 + 滑动窗口切分
 │   ├── embeddings.py    # text-embedding-v2，自动分批
-│   ├── vectorstore.py   # Chroma 持久化封装
+│   ├── vectorstore.py   # Chroma / Milvus 向量库封装 + create_store 工厂
 │   ├── llm.py           # qwen-plus 生成
 │   ├── prompts.py       # grounding Prompt 模板
 │   └── pipeline.py      # RAG 主流程（解析→向量化→检索→生成）
@@ -107,6 +181,8 @@ rag-qwen/
 | `SCORE_THRESHOLD` | 0.30 | 余弦相似度硬门槛，低于此值直接拒答。**这是抗幻觉的第一道闸** |
 | `TEMPERATURE` | 0.1 | 低温度保证答案稳定、少发挥 |
 | `EMBED_BATCH_SIZE` | 10 | DashScope 单次 embedding 条数上限 |
+| `VECTOR_BACKEND` | chroma | 向量库后端：`chroma` 或 `milvus` |
+| `MILVUS_DIM` | 1536 | Milvus 集合向量维度，须与 `EMBED_MODEL` 输出一致（v2→1536，v3→1024） |
 
 调优建议：
 

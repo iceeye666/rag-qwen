@@ -57,12 +57,49 @@ class Settings:
     score_threshold: float = _as_float("SCORE_THRESHOLD", 0.30)
 
     # ---- 存储 ----
+    # 向量库后端：chroma（默认）| milvus
+    vector_backend: str = os.getenv("VECTOR_BACKEND", "chroma").strip().lower()
+
+    # Chroma 配置
     persist_dir: Path = field(
         default_factory=lambda: Path(
             os.getenv("CHROMA_DIR", PROJECT_ROOT / "storage" / "chroma")
         )
     )
     collection_name: str = os.getenv("CHROMA_COLLECTION", "rag_qwen_docs")
+
+    # Milvus 配置（VECTOR_BACKEND=milvus 时生效）
+    # 连接目标优先级：milvus_uri > milvus_host:milvus_port > 本地 Lite 文件
+    milvus_uri: str = os.getenv("MILVUS_URI", "").strip()
+    milvus_host: str = os.getenv("MILVUS_HOST", "").strip()
+    milvus_port: int = _as_int("MILVUS_PORT", 19530)
+    milvus_token: str = os.getenv("MILVUS_TOKEN", "").strip()  # Zilliz Cloud 等需要
+    milvus_collection: str = os.getenv("MILVUS_COLLECTION", "rag_qwen_docs")
+    # 向量维度须与 embed_model 输出一致：text-embedding-v2 → 1536
+    milvus_dim: int = _as_int("MILVUS_DIM", 1536)
+
+    def resolve_milvus_uri(self) -> str:
+        """解析 Milvus 连接目标。
+
+        MILVUS_URI 优先（可为本地文件路径或 http(s) 地址）；
+        其次由 MILVUS_HOST/MILVUS_PORT 拼装；都未配置则回退本地 Lite 文件。
+
+        本地文件路径会统一转成绝对路径并确保父目录存在，因为 Milvus Lite
+        对相对路径的解析依赖当前工作目录，容易在换目录执行时连到别的库。
+        """
+        if self.milvus_uri:
+            if "://" in self.milvus_uri:
+                return self.milvus_uri
+            path = Path(self.milvus_uri).expanduser()
+            if not path.is_absolute():
+                path = PROJECT_ROOT / path
+            path.parent.mkdir(parents=True, exist_ok=True)
+            return str(path)
+        if self.milvus_host:
+            return f"http://{self.milvus_host}:{self.milvus_port}"
+        path = PROJECT_ROOT / "storage" / "milvus.db"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        return str(path)
 
     def require_api_key(self) -> str:
         if not self.api_key:
